@@ -1,0 +1,16 @@
+- [ ] refactor "screen" into 1) "screenbuffer" (functions for manipulating a
+  screen buffer) 2) "sdl" (functions for dealing with SDL).  A screenbuffer
+  should provide a "flush" function for flushing the current buffer onto the
+  screen when necessary.  This allows the VM some level of control over how
+  many instructions to execute per frame.  The screenbuffer will have a
+  configurable frame rate.  We'll see how this goes: we may need to further
+  decouple framerate from VM clock speed depending on how things go.
+
+- [ ] write a "parser" module which will be responsible for reading in binary
+  programs and parsing the commands into structs created by...
+
+- [ ] "vm" a module responsible for executing various commands.  vm requires
+  two interfaces: 1) a reader (which provides instructions) and 2) a
+  screenbuffer (to write to).
+
+- [ ] main should then just be glue code.
