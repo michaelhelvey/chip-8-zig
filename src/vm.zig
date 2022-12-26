@@ -35,28 +35,17 @@ pub const VM = struct {
     reader: *std.fs.File.Reader,
 
     const Self = @This();
+
+    pub fn init(reader: *std.fs.File.Reader) Self {
+        return .{
+            .registers = [_]u8{0} ** 16,
+            .stack = [_]u16{0} ** 16,
+            .delay_reg = 0,
+            .sound_reg = 0,
+            .index_reg = 0,
+            .sp = 0,
+            .mem = [_]u8{0} ** 4096,
+            .reader = reader,
+        };
+    }
 };
-
-// This is inline so that we effectively just allocate everything in main's
-// stack rather than having to do a heap allocation.  I haven't had a good
-// night's sleep in weeks plus I suck at zig so this is probably fucking
-// stupid, idk.
-pub inline fn initVM(reader: *std.fs.File.Reader) VM {
-    const registers: [16]u8 = undefined;
-    var mem: [4096]u8 = undefined;
-    const stack: [16]u16 = undefined;
-
-    // Load our pixel font into memory:
-    std.mem.copy(u8, mem[0..sprites.len], &sprites);
-
-    return .{
-        .registers = registers,
-        .stack = stack,
-        .delay_reg = 0,
-        .sound_reg = 0,
-        .index_reg = 0,
-        .sp = 0,
-        .mem = mem,
-        .reader = reader,
-    };
-}

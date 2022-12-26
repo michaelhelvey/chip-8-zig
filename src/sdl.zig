@@ -38,6 +38,28 @@ pub const GraphicsContext = struct {
 
     const Self = @This();
 
+    pub fn init() SDLError!Self {
+        if (c.SDL_Init(SDL_INIT_FLAGS) != 0) {
+            c.SDL_Log("SDL_Init error: %s\n", c.SDL_GetError());
+            return SDLError.SDLInitFailed;
+        }
+
+        const window = c.SDL_CreateWindow("Chip8", c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED, screen.V_WIDTH * SCALE, screen.V_HEIGHT * SCALE, SDL_WINDOW_FLAGS) orelse {
+            c.SDL_Log("SDL_CreateWindow error: %s\n", c.SDL_GetError());
+            return SDLError.SDLCreateWindowFailed;
+        };
+
+        const renderer = c.SDL_CreateRenderer(window, -1, SDL_RENDERER_FLAGS) orelse {
+            c.SDL_Log("SDL_CreateRenderer error: %s\n", c.SDL_GetError());
+            return SDLError.SDLCreateRendererFailed;
+        };
+
+        return .{
+            .window = window,
+            .renderer = renderer,
+        };
+    }
+
     /// Projects and flushes a virtualized screen buffer onto the real screen
     pub fn render(self: *const Self, buffer: *screen.InternalBuffer) void {
         _ = c.SDL_SetRenderDrawColor(self.renderer, red(BG_COLOR), green(BG_COLOR), blue(BG_COLOR), 255);
@@ -72,29 +94,6 @@ pub const GraphicsContext = struct {
         c.SDL_Quit();
     }
 };
-
-/// Creates a new SDL Graphics Context
-pub fn newGraphicsContext() SDLError!GraphicsContext {
-    if (c.SDL_Init(SDL_INIT_FLAGS) != 0) {
-        c.SDL_Log("SDL_Init error: %s\n", c.SDL_GetError());
-        return SDLError.SDLInitFailed;
-    }
-
-    const window = c.SDL_CreateWindow("Chip8", c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED, screen.V_WIDTH * SCALE, screen.V_HEIGHT * SCALE, SDL_WINDOW_FLAGS) orelse {
-        c.SDL_Log("SDL_CreateWindow error: %s\n", c.SDL_GetError());
-        return SDLError.SDLCreateWindowFailed;
-    };
-
-    const renderer = c.SDL_CreateRenderer(window, -1, SDL_RENDERER_FLAGS) orelse {
-        c.SDL_Log("SDL_CreateRenderer error: %s\n", c.SDL_GetError());
-        return SDLError.SDLCreateRendererFailed;
-    };
-
-    return .{
-        .window = window,
-        .renderer = renderer,
-    };
-}
 
 /// The subset of events that we want to be able to handle.
 pub const UserEvent = enum {

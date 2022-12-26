@@ -14,9 +14,20 @@ pub const ScreenBuffer = struct {
 
     const Self = @This();
 
+    pub fn init() Self {
+        // This unreadable bullshit initializes an V_WIDTH * V_HEIGHT matrix,
+        // and will be optimized into an in-place init on the stack of the
+        // calling function by the compiler.
+        return .{ .buffer = [_][V_WIDTH]bool{[_]bool{false} ** V_WIDTH} ** V_HEIGHT };
+    }
+
     /// Clears the screen
     pub fn clear(self: *Self) void {
-        self.buffer = std.mem.zeroes(InternalBuffer);
+        for (self.buffer) |row| {
+            for (row) |cell| {
+                cell = false;
+            }
+        }
     }
 
     /// Turns a pixel on or off at a given point in the grid.  Returns true if
@@ -33,10 +44,3 @@ pub const ScreenBuffer = struct {
         return false;
     }
 };
-
-/// Creates and initializes a new ScreenBuffer
-pub fn newScreenBuffer() ScreenBuffer {
-    return .{
-        .buffer = std.mem.zeroes(InternalBuffer),
-    };
-}

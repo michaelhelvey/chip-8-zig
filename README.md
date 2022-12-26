@@ -23,7 +23,7 @@ zig build run -- games/<game>
 
 ## Authors
 
-* Michael Helvey <michael.helvey1@gmail.com>
+* Michael Helvey
 
 ## License
 

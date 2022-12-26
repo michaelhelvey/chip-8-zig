@@ -1,20 +1,20 @@
 const std = @import("std");
 const sdl = @import("sdl.zig");
-const sb = @import("screenbuffer.zig");
-const vm = @import("vm.zig");
+const ScreenBuffer = @import("screenbuffer.zig").ScreenBuffer;
+const VM = @import("vm.zig").VM;
 
 pub fn main() !void {
-    var graphicsContext = try sdl.newGraphicsContext();
+    var graphicsContext = try sdl.GraphicsContext.init();
     defer graphicsContext.deinit();
 
     // statically allocate our screenbuffer
-    var screenBuffer = comptime sb.newScreenBuffer();
+    var screenBuffer = ScreenBuffer.init();
 
     const file = try std.fs.cwd().openFile("./games/IBM.ch8", .{ .mode = .read_only });
     defer file.close();
 
     var reader = file.reader();
-    var machine = vm.initVM(&reader);
+    var machine = VM.init(&reader);
     _ = machine;
 
     // TODO: create our virtual machine that will handle instructions
