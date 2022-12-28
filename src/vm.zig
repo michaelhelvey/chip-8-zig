@@ -35,7 +35,7 @@ pub const VM = struct {
     stack: [16]u16,
     delay_reg: u8,
     sound_reg: u8,
-    index_reg: u8,
+    index_reg: u16,
     sp: u8,
     pc: u16 = 0x200,
     mem: [4096]u8,
@@ -93,6 +93,64 @@ pub const VM = struct {
             },
             InstructionType.Jump => {
                 self.pc = instruction.data & 0x0FFF;
+            },
+            InstructionType.StoreImmediate => {
+                const number = instruction.data & 0x00FF;
+                const register = (instruction.data >> 8) & 0x0F;
+                self.registers[register] = @intCast(u8, number);
+            },
+            InstructionType.AddImmediate => {
+                const value = instruction.data & 0x00FF;
+                const register = (instruction.data >> 8) & 0x0F;
+                self.registers[register] += @intCast(u8, value);
+            },
+            InstructionType.StoreAddressInIndex => {
+                const address = instruction.data & 0x0FFF;
+                self.index_reg = address;
+            },
+            InstructionType.DrawSprite => {
+                // DXYN - Draw a sprite at position VX, VY with N bytes of
+                // sprite data starting at the address stored in I.  Set VF to
+                // 01 if any set pixels are changed to unset, and 00 otherwise.
+                //
+                // Sprites are drawn to the screen using the DXYN instruction.
+                // All sprites are rendered using an exclusive-or (XOR) mode;
+                // when a request to draw a sprite is processed, the given
+                // sprite's data is XOR'd with the current graphics data of the
+                // screen. If the program attempts to draw a sprite at an x
+                // coordinate greater than 0x3F, the x value will be reduced
+                // modulo 64. Similarly, if the program attempts to draw at a y
+                // coordinate greater than 0x1F, the y value will be reduced
+                // modulo 32. Sprites that are drawn partially off-screen will
+                // be clipped. Sprites are always eight pixels wide, with a
+                // height ranging from one to fifteen pixels.
+                var unsetPixels: u8 = 1;
+
+                const sprite_width = 8;
+                const sprite_height = instruction.third_nibble();
+
+                const x_pos = self.registers[instruction.first_nibble()];
+                const y_pos = self.registers[instruction.second_nibble()];
+
+                var row: u8 = 0;
+
+                while (row < sprite_height) : (row += 1) {
+                    var sprite = self.mem[self.index_reg + row];
+
+                    var col: u8 = 0;
+
+                    while (col < sprite_width) : (col += 1) {
+                        const value = (sprite & 0x80) > 0;
+                        unsetPixels = @boolToInt(self.screenbuffer.setPixel(x_pos + col, y_pos + row, value));
+
+                        // Shift the sprite left 1. This will move the next
+                        // next col/bit of the sprite into the first position.
+                        // Ex. 10010000 << 1 will become 0010000
+                        sprite = sprite << 1;
+                    }
+                }
+
+                self.registers[0xF] = unsetPixels;
             },
             else => {
                 std.debug.print("handling instruction {}, {X}\n", .{ instruction.type, instruction.data });
@@ -156,7 +214,7 @@ const InstructionType = enum {
     // equal to the value of register VY.
     SkipIfRegistersNotEqual,
     // ANNN - Store memory address NNN in register I
-    StoreAddress,
+    StoreAddressInIndex,
     // BNNN - Jump to address NNN + V0
     JumpToAddressPlus,
     // CXNN - Set VX to a random number with a mask of NN
@@ -209,15 +267,15 @@ const ParsedInstruction = struct {
     const Self = @This();
 
     pub fn first_nibble(self: *const Self) u4 {
-        return (self.data >> 8) & 0x0F;
+        return @intCast(u4, (self.data >> 8) & 0x0F);
     }
 
     pub fn second_nibble(self: *const Self) u4 {
-        return (self.data >> 4) & 0x00F;
+        return @intCast(u4, (self.data >> 4) & 0x00F);
     }
 
     pub fn third_nibble(self: *const Self) u4 {
-        return self.data & 0x000F;
+        return @intCast(u4, self.data & 0x000F);
     }
 };
 
@@ -228,8 +286,6 @@ pub fn parseInstruction(buffer: []u8) ParsedInstruction {
     // the value of the first nibble determines the instruction type in chip8
     return switch (buffer[0] >> 4) {
         0 => {
-            // There are a few "special" instructions starting with 0 that we
-            // need to handle:
             if (data == 0x00EE) {
                 return .{ .type = InstructionType.Return, .data = data };
             } else if (data == 0x00E0) {
@@ -240,7 +296,7 @@ pub fn parseInstruction(buffer: []u8) ParsedInstruction {
         1 => .{ .type = InstructionType.Jump, .data = data },
         6 => .{ .type = InstructionType.StoreImmediate, .data = data },
         7 => .{ .type = InstructionType.AddImmediate, .data = data },
-        0xA => .{ .type = InstructionType.StoreAddress, .data = data },
+        0xA => .{ .type = InstructionType.StoreAddressInIndex, .data = data },
         0xD => .{ .type = InstructionType.DrawSprite, .data = data },
         else => .{ .type = InstructionType.TODO, .data = data },
     };
