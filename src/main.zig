@@ -14,7 +14,7 @@ pub fn main() !void {
     defer file.close();
 
     var reader = file.reader();
-    var vm = VM.init(&reader);
+    var vm = try VM.init(&reader, &screenBuffer);
 
     var quit = false;
     while (!quit) {

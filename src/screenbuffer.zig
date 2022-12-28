@@ -23,9 +23,9 @@ pub const ScreenBuffer = struct {
 
     /// Clears the screen
     pub fn clear(self: *Self) void {
-        for (self.buffer) |row| {
-            for (row) |cell| {
-                cell = false;
+        for (self.buffer) |*row| {
+            for (row.*) |*cell| {
+                cell.* = false;
             }
         }
     }

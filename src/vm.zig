@@ -2,6 +2,7 @@
 // Reference: http://devernay.free.fr/hacks/chip8/C8TECH10.HTM
 
 const std = @import("std");
+const ScreenBuffer = @import("screenbuffer.zig").ScreenBuffer;
 
 const font_sprites = [_]u8{
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -29,10 +30,6 @@ pub const ExecutionError = error{
     InvalidInstructionLen,
 };
 
-/// A raw instruction, when read from a binary file, is represented as an array
-/// of bytes.
-const RawInstruction = [INSTRUCTION_LEN]u8;
-
 pub const VM = struct {
     registers: [16]u8,
     stack: [16]u16,
@@ -42,11 +39,11 @@ pub const VM = struct {
     sp: u8,
     pc: u16 = 0x200,
     mem: [4096]u8,
-    reader: *std.fs.File.Reader,
+    screenbuffer: *ScreenBuffer,
 
     const Self = @This();
 
-    pub fn init(reader: *std.fs.File.Reader) Self {
+    pub fn init(reader: *std.fs.File.Reader, screenbuffer: *ScreenBuffer) !Self {
         var result = Self{
             .registers = [_]u8{0} ** 16,
             .stack = [_]u16{0} ** 16,
@@ -55,80 +52,153 @@ pub const VM = struct {
             .index_reg = 0,
             .sp = 0,
             .mem = [_]u8{0} ** 4096,
-            .reader = reader,
+            .screenbuffer = screenbuffer,
         };
 
         // Load font sprites
         std.mem.copy(u8, result.mem[0..font_sprites.len], &font_sprites);
+
+        // Load program into machine memory starting at 0x200 by convention.
+        // In ye olden days, the first bytes would be for the font sprites +
+        // the actual CHIP-8 interpreter.
+        const bytes_read = try reader.readAll(result.mem[result.pc..]);
+        std.log.debug("read {} instructions into memory starting at {X}\n", .{ bytes_read / 2, result.pc });
 
         return result;
     }
 
     /// Executes instructions up until the screen needs to be repainted.
     pub fn execute_frame(self: *Self) !void {
-        var buffer: RawInstruction = undefined;
-
         while (true) {
-            const bytes_read = try self.reader.read(&buffer);
-
-            if (bytes_read > 0 and bytes_read < INSTRUCTION_LEN) {
-                return error.InvalidInstructionLen;
-            }
-
-            if (bytes_read == 0) {
+            // Check that there are more instructions left to execute.
+            if ((self.pc + 2) > self.mem.len) {
                 std.log.debug("Reached end of program\n", .{});
                 break;
             }
 
-            // if we reach this point, buffer should contain a valid instruction.
-            const instruction = parseInstruction(&buffer);
-            _ = instruction;
+            // Read an instruction out of memory
+            const raw_instruction = self.mem[self.pc .. self.pc + 2];
+            const instruction = parseInstruction(raw_instruction);
+
+            self.execute_instruction(instruction);
+            // Increment the program counter
+            self.pc += 2;
+        }
+    }
+
+    fn execute_instruction(self: *Self, instruction: ParsedInstruction) void {
+        switch (instruction.type) {
+            InstructionType.Clear => {
+                self.screenbuffer.clear();
+            },
+            InstructionType.Jump => {
+                self.pc = instruction.data & 0x0FFF;
+            },
+            else => {
+                std.debug.print("handling instruction {}, {X}\n", .{ instruction.type, instruction.data });
+            },
         }
     }
 };
 
+/// All 35 instructions in the CHIP-8 instruction set.  NNN refers to a
+/// hexadecial memory address.  NN refers to a hexadecimal byte.  N refers to a
+/// hexadecimal nibble.  X and Y refer to registers.
 const InstructionType = enum {
+    // 0NNN - Execute machine language subroutine at address NNN
     Sys,
+    // 00E0 - Clear the screen
     Clear,
+    // 00EE - Return from a subroutine
     Return,
+    // 1NNN - Jump to address NNN
     Jump,
+    // 2NNN - Execute subroutine starting at address NNN
     Call,
+    // 3XNN - Skip the following instruction if the value of register VX equals NN
     SkipIfEqual,
+    // 4XNN - Skip the following instruction if the value of register VX is not equal
+    // to NN
     SkipIfNotEqual,
+    // 5XY0 - Skip the following instruction if the value of register VX is equal to
+    // the value of register VY
     SkipIfRegistersEqual,
+    // 6XNN - Store number NN in register VX
     StoreImmediate,
+    // 7XNN - Add the value NN to register VX
     AddImmediate,
+    // 8XY0 - Store the value of register VY in register VX
     StoreRegister,
+    // 8XY1 - Set VX to VX OR VY
     Or,
+    // 8XY2 - Set VX to VX AND VY
     And,
+    // 8XY3 - Set VX to VX XOR VY
     Xor,
+    // 8XY4 - Add the value of register VY to register VX; set VF to 01 if a carry
+    // occurs.  Set VF to 00 if a carry does not occur.
     AddRegisters,
-    SubstractRegistersImmutably, // subtract VY from VX only saving whether a borrow occurred
+    // 8XY5 - Subtract the value of register VY from register VX; Set VF to 00 if a
+    // borrow occurs; Set VF to 01 if a borrow does not occur.
+    SubstractRegistersImmutably,
+    // 8XY6 - Store the value of register VY shifted right one bit in register
+    // VX; Set register VF to the least significant bit prior to the shift; VY
+    // is unchanged.
     ShiftRight,
-    Minus,
-    SubstractRegisters, // subtract VY from VX and save to VX
+    // 8XY7 - Set register VX to the value of VY minus VX.  Set VF to 00 if a
+    // borrow occurs.  Set VF to 01 if a borrow does not occur.
+    SubstractRegisters,
+    // 8XYE - Store the value of register VY shifted left one bit in register
+    // VX.  Set register VF to the most significant bit prior to the shirt.  VY
+    // is unchanged.0
     ShiftLeft,
+    // 9XY0 - Skip the following instruction if the value of register VX is not
+    // equal to the value of register VY.
     SkipIfRegistersNotEqual,
+    // ANNN - Store memory address NNN in register I
     StoreAddress,
+    // BNNN - Jump to address NNN + V0
     JumpToAddressPlus,
+    // CXNN - Set VX to a random number with a mask of NN
     SetRandomMask,
+    // DXYN - Draw a sprite at position VX, VY with N bytes of sprite data
+    // starting at the address stored in I.  Set VF to 01 if any set pixels are
+    // changed to unset, and 00 otherwise.
     DrawSprite,
+    // EX9E - Skip the following instruction if the key corresponding to the
+    // hext value currently stored in reigster VX is pressed.
     SkipIfPressed,
+    // EXA1 - Skip the following instruction if the key corresponding to the
+    // hex value currently stored in register VX is not pressed.
     SkipIfNotPressed,
+    // FX07 - Store the current value of the delay timer in register VX.
     StoreDelay,
+    // FX0A - Wait for a keypress and store the result in the register VX
     WaitForKeypress,
+    // FX15 - Set the delay timer to the value of register VX.
     SetDelayTimer,
+    // FX18 - Set the sound timer to the value of register VX.
     SetSoundTimer,
+    // FX1E - Add the value stored in register VX to register I.
     AddIndexRegister,
+    // FX29 - Set I to the memory address of the sprite data corresponding to
+    // the hexadecimal digit stored in register VX.
     SetIndexToSprite,
+    // FX33 - Store the binary-coded decimal equivalent of the value stored in
+    // register VX at address I, I + 1, and I + 2
     StoreBinaryDecimal,
+    // FX55 - Store the values of registers V0 to VX inclusive in memory
+    // starting at address I.  I is set to I + X + 1 after operation.
     StoreAllRegisters,
+    // FX65 - Fill registers V0 to VX inclusive with the values stored in
+    // memory starting address I.  I is set to I + X + 1 after operation.
     FillRegistersFromMem,
+    TODO,
 };
 
 const ParsedInstruction = struct {
     type: InstructionType,
-    // QUESTION: does endianness matter if all I am doing is casting a byte
+    // QUESTION(Michael): does endianness matter if all I am doing is casting a byte
     // array to a u16, not as in "a 16 bit number" but literally just as "16
     // bits of data in the same order that they were in in the original binary?
     // i.e. I don't give a fuck what the most significant byte is in the
@@ -151,18 +221,27 @@ const ParsedInstruction = struct {
     }
 };
 
-pub fn parseInstruction(buffer: *RawInstruction) ParsedInstruction {
+pub fn parseInstruction(buffer: []u8) ParsedInstruction {
+    // FIXME(Michael): determine the most ziggy way to deal with this whole
+    // "raw instruction as slice into memory buffer" thing
+    const data = @bitCast(u16, [2]u8{ buffer[0], buffer[1] });
     // the value of the first nibble determines the instruction type in chip8
     return switch (buffer[0] >> 4) {
         0 => {
-            // There are a few "special" instructions starting with 0 that we need to handle
-            if (buffer.* == 0x00EE) {
-                return .{ .type = InstructionType.RET, .data = @bitCast(u16, buffer.*) };
-            } else if (buffer.* == 0x00E0) {
-                return .{ .type = InstructionType.CLS, .data = @bitCast(u16, buffer.*) };
+            // There are a few "special" instructions starting with 0 that we
+            // need to handle:
+            if (data == 0x00EE) {
+                return .{ .type = InstructionType.Return, .data = data };
+            } else if (data == 0x00E0) {
+                return .{ .type = InstructionType.Clear, .data = data };
             }
-            return .{ .type = InstructionType.SYS, .data = @bitCast(u16, buffer.*) };
+            return .{ .type = InstructionType.Sys, .data = data };
         },
-        else => unreachable,
+        1 => .{ .type = InstructionType.Jump, .data = data },
+        6 => .{ .type = InstructionType.StoreImmediate, .data = data },
+        7 => .{ .type = InstructionType.AddImmediate, .data = data },
+        0xA => .{ .type = InstructionType.StoreAddress, .data = data },
+        0xD => .{ .type = InstructionType.DrawSprite, .data = data },
+        else => .{ .type = InstructionType.TODO, .data = data },
     };
 }
