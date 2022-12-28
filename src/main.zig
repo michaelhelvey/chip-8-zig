@@ -14,12 +14,12 @@ pub fn main() !void {
     defer file.close();
 
     var reader = file.reader();
-    var machine = VM.init(&reader);
-    _ = machine;
+    var vm = VM.init(&reader);
 
-    // TODO: create our virtual machine that will handle instructions
     var quit = false;
     while (!quit) {
+        try vm.execute_frame();
+
         while (sdl.getEvent()) |event| {
             switch (event) {
                 .Quit => {
