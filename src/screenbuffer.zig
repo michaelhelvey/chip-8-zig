@@ -33,7 +33,7 @@ pub const ScreenBuffer = struct {
     /// Turns a pixel on or off at a given point in the grid.  Returns true if
     /// this operation unsets a previous set pixel.  Returns false otherwise.
     /// C.f. http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#Dxyn
-    pub fn setPixel(self: *Self, x: u32, y: u32, value: bool) bool {
+    pub fn setPixel(self: *Self, x: u8, y: u8, value: bool) bool {
         const previouslySet = self.buffer[y][x];
         self.buffer[y][x] = value;
 

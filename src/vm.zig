@@ -30,6 +30,11 @@ pub const ExecutionError = error{
     InvalidInstructionLen,
 };
 
+pub const ExecutionResult = enum {
+    Draw,
+    Done,
+};
+
 pub const VM = struct {
     registers: [16]u8,
     stack: [16]u16,
@@ -68,21 +73,27 @@ pub const VM = struct {
     }
 
     /// Executes instructions up until the screen needs to be repainted.
-    pub fn execute_frame(self: *Self) !void {
+    pub fn execute_frame(self: *Self) !ExecutionResult {
         while (true) {
-            // Check that there are more instructions left to execute.
-            if ((self.pc + 2) > self.mem.len) {
-                std.log.debug("Reached end of program\n", .{});
-                break;
-            }
-
             // Read an instruction out of memory
             const raw_instruction = self.mem[self.pc .. self.pc + 2];
             const instruction = parseInstruction(raw_instruction);
 
             self.execute_instruction(instruction);
-            // Increment the program counter
-            self.pc += 2;
+
+            // Loop forever:
+            if (self.pc >= 0xFFE) {
+                return ExecutionResult.Done;
+                // self.pc = 0x200;
+            } else {
+                self.pc += 2;
+            }
+
+            // when we draw to the screen, defer execution back to the main
+            // loop to let the graphics context handle it.
+            if (instruction.type == InstructionType.DrawSprite) {
+                return ExecutionResult.Draw;
+            }
         }
     }
 
@@ -96,13 +107,11 @@ pub const VM = struct {
             },
             InstructionType.StoreImmediate => {
                 const number = instruction.data & 0x00FF;
-                const register = (instruction.data >> 8) & 0x0F;
-                self.registers[register] = @intCast(u8, number);
+                self.registers[instruction.first_nibble()] = @intCast(u8, number);
             },
             InstructionType.AddImmediate => {
                 const value = instruction.data & 0x00FF;
-                const register = (instruction.data >> 8) & 0x0F;
-                self.registers[register] += @intCast(u8, value);
+                self.registers[instruction.first_nibble()] +%= @intCast(u8, value);
             },
             InstructionType.StoreAddressInIndex => {
                 const address = instruction.data & 0x0FFF;
@@ -153,7 +162,9 @@ pub const VM = struct {
                 self.registers[0xF] = unsetPixels;
             },
             else => {
-                std.debug.print("handling instruction {}, {X}\n", .{ instruction.type, instruction.data });
+                if (instruction.data != 0) {
+                    std.debug.print("unhandled instruction 0x{X}\n", .{instruction.data});
+                }
             },
         }
     }
@@ -281,8 +292,10 @@ const ParsedInstruction = struct {
 
 pub fn parseInstruction(buffer: []u8) ParsedInstruction {
     // FIXME(Michael): determine the most ziggy way to deal with this whole
-    // "raw instruction as slice into memory buffer" thing
-    const data = @bitCast(u16, [2]u8{ buffer[0], buffer[1] });
+    // "raw instruction as slice into memory buffer" thing.
+    // Note that we have to handle endianness by reversing buffer 1 and buffer
+    // 0 on my ARM64 system.
+    const data = @bitCast(u16, [2]u8{ buffer[1], buffer[0] });
     // the value of the first nibble determines the instruction type in chip8
     return switch (buffer[0] >> 4) {
         0 => {

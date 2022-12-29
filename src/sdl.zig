@@ -17,10 +17,11 @@ const SDL_RENDERER_FLAGS = c.SDL_RENDERER_ACCELERATED;
 /// a real display.
 const SCALE = 20;
 
-const BG_COLOR = 0x6080FF;
+// const BG_COLOR = 0x6080FF;
+const BG_COLOR = 0x000000;
 const FG_COLOR = 0xFFFFFF;
 
-const FRAME_RATE = 60;
+const FRAME_RATE = 10;
 
 // ****************************************************************************
 // Graphics Context
@@ -85,6 +86,9 @@ pub const GraphicsContext = struct {
         }
 
         c.SDL_RenderPresent(self.renderer);
+    }
+
+    pub fn wait() void {
         c.SDL_Delay(1000 / FRAME_RATE);
     }
 

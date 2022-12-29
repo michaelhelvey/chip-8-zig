@@ -18,7 +18,7 @@ pub fn main() !void {
 
     var quit = false;
     while (!quit) {
-        try vm.execute_frame();
+        const exe_result = try vm.execute_frame();
 
         while (sdl.getEvent()) |event| {
             switch (event) {
@@ -28,6 +28,13 @@ pub fn main() !void {
             }
         }
 
-        graphicsContext.render(&screenBuffer.buffer);
+        switch (exe_result) {
+            .Done => {},
+            .Draw => {
+                graphicsContext.render(&screenBuffer.buffer);
+            },
+        }
+
+        sdl.GraphicsContext.wait();
     }
 }
